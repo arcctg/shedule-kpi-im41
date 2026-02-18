@@ -1,0 +1,23 @@
+node_modules/
+dist/
+
+# Never commit real credentials — use .env.example as a template
+.env
+.env.local
+.env.*.local
+
+# SQLite DB files contain user data (lesson links)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+logs/
+*.log
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

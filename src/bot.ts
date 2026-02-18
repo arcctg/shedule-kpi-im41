@@ -1,0 +1,241 @@
+import { Telegraf, Context, Markup } from 'telegraf';
+import { config } from './config';
+import { logger } from './utils/logger';
+import { scheduleService, fetchActiveWeek } from './services/schedule.service';
+import { dbService } from './database/db';
+import { formatDay, formatWeek, LEGEND_HEADER } from './utils/format.utils';
+import { splitWeekMessageByDay } from './utils/messageSplitter';
+import { getUkrainianDayAbbr, getTomorrow } from './utils/date.utils';
+
+// ─── Inline keyboard for /fortnight ──────────────────────────────────────────
+
+function makeFortnightMarkup(activeWeek: 1 | 2) {
+    return Markup.inlineKeyboard([
+        Markup.button.callback(
+            activeWeek === 1 ? '• Тиждень 1' : 'Тиждень 1',
+            'fortnight_1',
+        ),
+        Markup.button.callback(
+            activeWeek === 2 ? '• Тиждень 2' : 'Тиждень 2',
+            'fortnight_2',
+        ),
+    ]);
+}
+
+// ─── Bot factory ──────────────────────────────────────────────────────────────
+
+export function createBot(): Telegraf {
+    const bot = new Telegraf(config.bot.token);
+
+    // ─── /start ──────────────────────────────────────────────────────────────
+    bot.start(async (ctx: Context) => {
+        const msg =
+            `${LEGEND_HEADER}\n\n` +
+            'Доступні команди:\n' +
+            '/today — розклад на сьогодні\n' +
+            '/tomorrow — розклад на завтра\n' +
+            '/week — розклад на тиждень\n' +
+            '/fortnight — переглянути та перемикати тижні\n' +
+            '/setlink &lt;назва&gt; &lt;тип&gt; &lt;url&gt; — зберегти посилання\n' +
+            '/deletelink &lt;назва&gt; &lt;тип&gt; — видалити посилання\n\n' +
+            'Типи: Лекція | Практика | Лаба';
+        await ctx.replyWithHTML(msg);
+    });
+
+    // ─── /fortnight ──────────────────────────────────────────────────────────
+    bot.command('fortnight', async (ctx: Context) => {
+        try {
+            const activeWeek = await fetchActiveWeek();
+            const days = await scheduleService.getWeekSchedule(activeWeek);
+            const fullMessage = formatWeek(days);
+            const parts = splitWeekMessageByDay(fullMessage);
+            const keyboard = makeFortnightMarkup(activeWeek);
+
+            // Send all parts; attach keyboard to the last one
+            for (let i = 0; i < parts.length - 1; i++) {
+                await ctx.replyWithHTML(parts[i] ?? '');
+            }
+            const lastPart = parts[parts.length - 1] ?? '';
+            await ctx.replyWithHTML(lastPart, keyboard);
+        } catch (err) {
+            logger.error('Error in /fortnight:', err);
+            await ctx.reply('❌ Не вдалося отримати розклад. Спробуйте пізніше.');
+        }
+    });
+
+    // ─── Callback: fortnight_1 / fortnight_2 ─────────────────────────────────
+    bot.action(/^fortnight_([12])$/, async (ctx) => {
+        try {
+            const raw = ctx.match[1] ?? '1';
+            const requestedWeek = (raw === '2' ? 2 : 1) as 1 | 2;
+            const activeWeek = await fetchActiveWeek();
+
+            const days = await scheduleService.getWeekSchedule(requestedWeek);
+            const fullMessage = formatWeek(days);
+            // editMessageText limit is 4096 — use first chunk only
+            const displayText = splitWeekMessageByDay(fullMessage)[0] ?? '';
+
+            try {
+                await ctx.editMessageText(displayText, {
+                    parse_mode: 'HTML',
+                    ...makeFortnightMarkup(activeWeek),
+                });
+            } catch (editErr: unknown) {
+                // Telegram returns 400 "message is not modified" when the user
+                // clicks the button for the week that is already displayed.
+                // This is harmless — just ignore it.
+                const msg = editErr instanceof Error ? editErr.message : String(editErr);
+                if (!msg.includes('message is not modified')) {
+                    throw editErr;
+                }
+            }
+            await ctx.answerCbQuery();
+        } catch (err) {
+            logger.error('Error in fortnight callback:', err);
+            await ctx.answerCbQuery('❌ Помилка. Спробуйте ще раз.');
+        }
+    });
+
+    // ─── /today ──────────────────────────────────────────────────────────────
+    bot.command('today', async (ctx: Context) => {
+        try {
+            const week = await fetchActiveWeek();
+            const dayName = getUkrainianDayAbbr(new Date());
+            const day = await scheduleService.getScheduleForDay(dayName, week);
+            await ctx.replyWithHTML(formatDay(dayName, day?.pairs ?? []));
+        } catch (err) {
+            logger.error('Error in /today:', err);
+            await ctx.reply('❌ Не вдалося отримати розклад. Спробуйте пізніше.');
+        }
+    });
+
+    // ─── /tomorrow ───────────────────────────────────────────────────────────
+    bot.command('tomorrow', async (ctx: Context) => {
+        try {
+            const week = await fetchActiveWeek();
+            const dayName = getUkrainianDayAbbr(getTomorrow(new Date()));
+            const day = await scheduleService.getScheduleForDay(dayName, week);
+            await ctx.replyWithHTML(formatDay(dayName, day?.pairs ?? []));
+        } catch (err) {
+            logger.error('Error in /tomorrow:', err);
+            await ctx.reply('❌ Не вдалося отримати розклад. Спробуйте пізніше.');
+        }
+    });
+
+    // ─── /week ───────────────────────────────────────────────────────────────
+    bot.command('week', async (ctx: Context) => {
+        try {
+            const week = await fetchActiveWeek();
+            const days = await scheduleService.getWeekSchedule(week);
+            const parts = splitWeekMessageByDay(formatWeek(days));
+            for (const part of parts) {
+                await ctx.replyWithHTML(part);
+            }
+        } catch (err) {
+            logger.error('Error in /week:', err);
+            await ctx.reply('❌ Не вдалося отримати розклад. Спробуйте пізніше.');
+        }
+    });
+
+    // ─── /setlink ────────────────────────────────────────────────────────────
+    bot.command('setlink', async (ctx: Context) => {
+        try {
+            const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+            const withoutCmd = text.replace(/^\/setlink\s*/i, '').trim();
+
+            let lessonName: string;
+            let rest: string;
+
+            const quotedMatch = withoutCmd.match(/^"([^"]+)"\s+(.*)/s);
+            if (quotedMatch) {
+                lessonName = quotedMatch[1] ?? '';
+                rest = (quotedMatch[2] ?? '').trim();
+            } else {
+                const parts = withoutCmd.split(/\s+/);
+                if (parts.length < 3) {
+                    await ctx.reply(
+                        '⚠️ Використання:\n/setlink "Назва предмету" Тип https://url\n\n' +
+                        'Типи: Лекція | Практика | Лаба\n' +
+                        'Приклад:\n/setlink "Системне програмування" Лекція https://zoom.us/j/123',
+                    );
+                    return;
+                }
+                const url = parts.pop() ?? '';
+                const type = parts.pop() ?? '';
+                lessonName = parts.join(' ');
+                rest = `${type} ${url}`;
+            }
+
+            const restParts = rest.split(/\s+/);
+            if (restParts.length < 2) {
+                await ctx.reply('⚠️ Вкажіть тип та URL.\nТипи: Лекція | Практика | Лаба');
+                return;
+            }
+
+            const lessonType = restParts[0] ?? '';
+            const rawUrl = restParts[restParts.length - 1] ?? '';
+            const url = rawUrl.replace(/^<|>$/g, '');
+            const cleanName = lessonName.replace(/^<|>$/g, '');
+
+            const validTypes = ['Лекція', 'Практика', 'Лаба'];
+            if (!validTypes.includes(lessonType)) {
+                await ctx.reply(`⚠️ Невідомий тип: "${lessonType}"\nДопустимі: Лекція | Практика | Лаба`);
+                return;
+            }
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                await ctx.reply('⚠️ URL повинен починатися з http:// або https://');
+                return;
+            }
+
+            dbService.setLink(cleanName, lessonType, url);
+            await ctx.replyWithHTML(`✅ Посилання збережено:\n<b>${cleanName}</b> [${lessonType}]`);
+        } catch (err) {
+            logger.error('Error in /setlink:', err);
+            await ctx.reply('❌ Не вдалося зберегти посилання.');
+        }
+    });
+
+    // ─── /deletelink ─────────────────────────────────────────────────────────
+    bot.command('deletelink', async (ctx: Context) => {
+        try {
+            const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+            const withoutCmd = text.replace(/^\/deletelink\s*/i, '').trim();
+
+            let lessonName: string;
+            let lessonType: string;
+
+            const quotedMatch = withoutCmd.match(/^"([^"]+)"\s+(\S+)/);
+            if (quotedMatch) {
+                lessonName = quotedMatch[1] ?? '';
+                lessonType = quotedMatch[2] ?? '';
+            } else {
+                const parts = withoutCmd.split(/\s+/);
+                if (parts.length < 2) {
+                    await ctx.reply(
+                        '⚠️ Використання: /deletelink "Назва предмету" Тип\nТипи: Лекція | Практика | Лаба',
+                    );
+                    return;
+                }
+                lessonType = parts.pop() ?? '';
+                lessonName = parts.join(' ');
+            }
+
+            const deleted = dbService.deleteLink(lessonName, lessonType);
+            if (deleted) {
+                await ctx.replyWithHTML(`🗑 Посилання для <b>${lessonName}</b> [${lessonType}] видалено.`);
+            } else {
+                await ctx.replyWithHTML(`⚠️ Посилання для <b>${lessonName}</b> [${lessonType}] не знайдено.`);
+            }
+        } catch (err) {
+            logger.error('Error in /deletelink:', err);
+            await ctx.reply('❌ Не вдалося видалити посилання.');
+        }
+    });
+
+    // ─── Error handler ────────────────────────────────────────────────────────
+    bot.catch((err: unknown, ctx: Context) => {
+        logger.error(`Bot error for update ${ctx.update.update_id}:`, err);
+    });
+
+    return bot;
+}
