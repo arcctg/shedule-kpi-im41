@@ -27,6 +27,8 @@ async function main(): Promise<void> {
         { command: 'setlink', description: 'Зберегти посилання: "Назва" Тип https://...' },
         { command: 'deletelink', description: 'Видалити посилання: "Назва" Тип' },
         { command: 'enable', description: 'Увімкнути/вимкнути нагадування (/enable [хв])' },
+        { command: 'teacher', description: 'Викладачі предмета: "Назва" [Тип]' },
+
     ]);
     logger.info('Bot commands registered');
 
