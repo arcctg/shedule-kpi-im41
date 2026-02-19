@@ -9,7 +9,7 @@ import { getUkrainianDayAbbr, getTomorrow } from './utils/date.utils';
 import { isAdmin } from './utils/admin.guard';
 import { createRateLimiterMiddleware } from './services/rateLimiter.service';
 import { createConcurrencyMiddleware } from './services/concurrency.service';
-import { getCurrentLesson, formatNowMessage } from './utils/currentLesson';
+import { getCurrentLesson, formatNowMessage, getNextLesson, formatNextMessage } from './utils/currentLesson';
 import { parseMinutesArg, toggleReminder } from './services/reminder.service';
 import { handleTeacherCommand } from './services/teacher.service';
 import type { NotificationRepo } from './database/notificationRepo';
@@ -331,6 +331,34 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
         } catch (err) {
             logger.error('Unexpected error in /deletelink:', err);
             await ctx.reply('❌ Не вдалося видалити посилання.');
+        }
+    });
+
+    // ─── /next ────────────────────────────────────────────────────────
+    bot.command('next', async (ctx: Context) => {
+        try {
+            const week = await fetchActiveWeek();
+            const dayAbbr = getUkrainianDayAbbr(new Date());
+            const scheduleDay = await scheduleService.getScheduleForDay(dayAbbr, week);
+
+            const next = getNextLesson(scheduleDay);
+            if (!next) {
+                await ctx.reply('Сьогодні більше пар немає.');
+                return;
+            }
+
+            const { lesson } = next;
+            const dbLabel =
+                lesson.type.startsWith('Лек') ? 'Лекція'
+                    : lesson.type.startsWith('Прак') ? 'Практика'
+                        : lesson.type.startsWith('Лаб') ? 'Лаба'
+                            : lesson.type;
+            const link = dbService.getLink(lesson.name, dbLabel);
+
+            await ctx.replyWithHTML(formatNextMessage(next, link));
+        } catch (err) {
+            logger.error('Error in /next:', err);
+            await ctx.reply('Не вдалося отримати розклад.');
         }
     });
 

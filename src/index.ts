@@ -23,6 +23,8 @@ async function main(): Promise<void> {
         { command: 'week', description: 'Розклад на весь тиждень' },
         { command: 'fortnight', description: 'Переглянути та перемикати тижні' },
         { command: 'now', description: 'Поточна пара' },
+        { command: 'next', description: 'Наступна пара' },
+
         { command: 'left', description: 'Скільки хвилин до кінця пари' },
         { command: 'setlink', description: 'Зберегти посилання: "Назва" Тип https://...' },
         { command: 'deletelink', description: 'Видалити посилання: "Назва" Тип' },

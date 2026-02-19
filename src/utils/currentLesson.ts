@@ -172,3 +172,62 @@ export function getCurrentLesson(
 
     return null;
 }
+
+// ─── /next helpers ────────────────────────────────────────────────────────────
+
+export interface NextLesson {
+    lesson: Lesson;
+    /** Display range string, e.g. "16:10-17:45" */
+    timeRange: string;
+}
+
+/**
+ * Finds the **next** lesson that has not yet started relative to `now`.
+ *
+ * A lesson is "next" when startMinutes > nowMinutes.
+ * Lessons are iterated in ascending start-time order (normalizeLessons sorts them).
+ *
+ * @param scheduleDay  Today's schedule (null → no classes).
+ * @param now          Optional minutes-since-midnight override for testing.
+ */
+export function getNextLesson(
+    scheduleDay: ScheduleDay | null,
+    now?: number,
+): NextLesson | null {
+    if (!scheduleDay || scheduleDay.pairs.length === 0) return null;
+
+    const currentMin = now ?? nowKyivMinutes();
+    const lessons = normalizeLessons(scheduleDay.pairs);
+
+    for (const lesson of lessons) {
+        const { startHHMM, endHHMM, startMin } = parseTimeInterval(lesson.time);
+        if (startMin > currentMin) {
+            return { lesson, timeRange: `${startHHMM}-${endHHMM}` };
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Formats the HTML reply for /next.
+ *
+ * @param next  The upcoming lesson.
+ * @param link  URL from DB (null → plain text name).
+ */
+export function formatNextMessage(next: NextLesson, link: string | null): string {
+    const { lesson, timeRange } = next;
+
+    const typeEmoji =
+        lesson.type.startsWith('Лек') ? '🔵' :
+            lesson.type.startsWith('Прак') ? '🟠' :
+                lesson.type.startsWith('Лаб') ? '🟢' : '⚪';
+
+    const escapedName = htmlEscape(lesson.name);
+    const nameDisplay = link
+        ? `<a href="${link}">${escapedName}</a>`
+        : escapedName;
+
+    return `Наступна пара:\n${timeRange}\n${typeEmoji} ${nameDisplay}`;
+}
+
