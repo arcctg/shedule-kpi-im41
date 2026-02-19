@@ -10,7 +10,8 @@ import { isAdmin } from './utils/admin.guard';
 import { createRateLimiterMiddleware } from './services/rateLimiter.service';
 import { createConcurrencyMiddleware } from './services/concurrency.service';
 import { getCurrentLesson, formatNowMessage, getNextLesson, formatNextMessage } from './utils/currentLesson';
-import { parseMinutesArg, toggleReminder } from './services/reminder.service';
+import { toggleReminder } from './services/reminder.service';
+
 import { handleTeacherCommand } from './services/teacher.service';
 import type { NotificationRepo } from './database/notificationRepo';
 
@@ -411,7 +412,9 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
     });
 
     // ─── /enable ───────────────────────────────────────────────────────────
-    bot.command('enable', async (ctx: Context) => {
+    // Regex: /enable or /enable@botname, with optional space + digits
+    // Group 1: optional @botname  Group 2: optional minutes digits
+    bot.hears(/^\/enable(@\w+)?(?:\s+(\S+))?$/, async (ctx) => {
         const userId = ctx.from?.id;
         if (!userId) return;
 
@@ -421,25 +424,35 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
             return;
         }
 
-        const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-        const arg = text.replace(/^\/enable\s*/i, '').trim();
+        const rawArg = ctx.match[2]; // captured minutes token (string | undefined)
+        const VALIDATION_ERROR = 'Вкажіть кількість хвилин від 1 до 60.';
 
-        const parsed = parseMinutesArg(arg);
-        if (!parsed.ok) {
-            await ctx.reply(parsed.error);
+        // No argument → toggle on/off
+        if (rawArg === undefined) {
+            const result = toggleReminder(repo, userId, undefined);
+            if (result.enabled) {
+                await ctx.reply(`Нагадування увімкнено (за ${result.minutesBefore} хв).`);
+            } else {
+                await ctx.reply('Нагадування вимкнено.');
+            }
             return;
         }
 
-        // If no argument was given ('' → default 10), use toggle semantics
-        const minutesArg = arg === '' ? undefined : parsed.minutes;
-        const result = toggleReminder(repo, userId, minutesArg);
+        // Argument provided — must be a whole integer in 1..60
+        const minutes = Number(rawArg);
+        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
+            await ctx.reply(VALIDATION_ERROR);
+            return;
+        }
 
+        const result = toggleReminder(repo, userId, minutes);
         if (result.enabled) {
             await ctx.reply(`Нагадування увімкнено (за ${result.minutesBefore} хв).`);
         } else {
             await ctx.reply('Нагадування вимкнено.');
         }
     });
+
 
     // ─── /teacher ────────────────────────────────────────────────────────
     bot.command('teacher', async (ctx: Context) => {
