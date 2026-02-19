@@ -73,11 +73,11 @@ function validateUrl(raw: string): string | null {
 function makeFortnightMarkup(activeWeek: 1 | 2) {
     return Markup.inlineKeyboard([
         Markup.button.callback(
-            activeWeek === 1 ? '• Тиждень 1' : 'Тиждень 1',
+            activeWeek === 1 ? '[Тиждень 1]' : 'Тиждень 1',
             'fortnight_1',
         ),
         Markup.button.callback(
-            activeWeek === 2 ? '• Тиждень 2' : 'Тиждень 2',
+            activeWeek === 2 ? '[Тиждень 2]' : 'Тиждень 2',
             'fortnight_2',
         ),
     ]);
@@ -151,7 +151,6 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
         try {
             const raw = ctx.match[1] ?? '1';
             const requestedWeek = (raw === '2' ? 2 : 1) as 1 | 2;
-            const activeWeek = await fetchActiveWeek();
 
             const days = await scheduleService.getWeekSchedule(requestedWeek);
             const fullMessage = formatWeek(days);
@@ -161,7 +160,7 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
             try {
                 await ctx.editMessageText(displayText, {
                     parse_mode: 'HTML',
-                    ...makeFortnightMarkup(activeWeek),
+                    ...makeFortnightMarkup(requestedWeek),
                 });
             } catch (editErr: unknown) {
                 // Telegram returns 400 "message is not modified" when the user
