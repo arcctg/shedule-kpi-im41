@@ -89,6 +89,16 @@ export function calculateMinutesLeft(endHHMM: string, nowMinutes: number): numbe
 }
 
 /**
+ * Formats minutes remaining as "X хв" if < 60, or "X год Y хв" if >= 60.
+ */
+export function formatMinutesLeft(minutes: number): string {
+    if (minutes < 60) return `${minutes} хв`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m === 0 ? `${h} год` : `${h} год ${m} хв`;
+}
+
+/**
  * Formats the HTML reply for /now given an active lesson and an optional
  * pre-resolved DB link. Keeping the link resolution outside this function
  * keeps it pure and easy to test.
@@ -115,7 +125,7 @@ export function formatNowMessage(active: ActiveLesson, link: string | null): str
         `Станом на зараз:\n` +
         `${timeRange}\n` +
         `${typeEmoji} ${nameDisplay}\n\n` +
-        `До кінця пари: ${minutesLeft} хв`
+        `До кінця пари: ${formatMinutesLeft(minutesLeft)}`
     );
 }
 
