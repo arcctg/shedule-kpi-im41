@@ -77,6 +77,24 @@ describe('parseTeacherCommand — parsing', () => {
         if (r.ok) expect(r.subjectName).toBe('Алгебра');
     });
 
+    it('parses command with @botname suffix', () => {
+        const r = parseTeacherCommand('/teacher@test_im_41_shedule_kpi_bot "Системне програмування"');
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+            expect(r.subjectName).toBe('Системне програмування');
+            expect(r.type).toBeNull();
+        }
+    });
+
+    it('parses command with @botname suffix and type', () => {
+        const r = parseTeacherCommand('/teacher@mybot "Системне програмування" Лекція');
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+            expect(r.subjectName).toBe('Системне програмування');
+            expect(r.type).toBe('Лекція');
+        }
+    });
+
     it('returns error when no quotes provided', () => {
         const r = parseTeacherCommand('/teacher Системне програмування');
         expect(r.ok).toBe(false);
@@ -138,6 +156,25 @@ describe('findTeachers — search logic', () => {
         // "лек" matches "Лекція" via prefix
         const teachers = findTeachers(LESSONS, 'Системне програмування', 'лек');
         expect(teachers).toHaveLength(1);
+    });
+
+    it('matches abbreviated API types (e.g. "Лек." matches user input "Лекція")', () => {
+        const lessons = [
+            makeLesson({ name: 'Предмет', type: 'Лек.', lecturer: { id: '1', name: 'Іваненко І.О.' } }),
+            makeLesson({ name: 'Предмет', type: 'Лаб.', lecturer: { id: '2', name: 'Петренко П.П.' } }),
+        ];
+        const teachers = findTeachers(lessons, 'Предмет', 'Лекція');
+        expect(teachers).toHaveLength(1);
+        expect(teachers[0].name).toBe('Іваненко І.О.');
+    });
+
+    it('matches abbreviated API type "Лаб." against user input "Лаба"', () => {
+        const lessons = [
+            makeLesson({ name: 'Предмет', type: 'Лаб.', lecturer: { id: '3', name: 'Коваленко К.К.' } }),
+        ];
+        const teachers = findTeachers(lessons, 'Предмет', 'Лаба');
+        expect(teachers).toHaveLength(1);
+        expect(teachers[0].name).toBe('Коваленко К.К.');
     });
 
     it('returns empty array when subject not found', () => {

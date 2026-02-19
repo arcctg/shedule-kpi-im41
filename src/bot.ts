@@ -231,7 +231,7 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
         }
         try {
             const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-            const withoutCmd = text.replace(/^\/setlink\s*/i, '').trim();
+            const withoutCmd = text.replace(/^\/setlink(?:@\w+)?\s*/i, '').trim();
 
             let lessonName: string;
             let rest: string;
@@ -302,7 +302,7 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
         }
         try {
             const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-            const withoutCmd = text.replace(/^\/deletelink\s*/i, '').trim();
+            const withoutCmd = text.replace(/^\/deletelink(?:@\w+)?\s*/i, '').trim();
 
             let lessonName: string;
             let lessonType: string;
