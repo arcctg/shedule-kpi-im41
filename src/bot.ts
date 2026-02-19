@@ -9,6 +9,9 @@ import { getUkrainianDayAbbr, getTomorrow } from './utils/date.utils';
 import { isAdmin } from './utils/admin.guard';
 import { createRateLimiterMiddleware } from './services/rateLimiter.service';
 import { createConcurrencyMiddleware } from './services/concurrency.service';
+import { getCurrentLesson, formatNowMessage } from './utils/currentLesson';
+import { parseMinutesArg, toggleReminder } from './services/reminder.service';
+import type { NotificationRepo } from './database/notificationRepo';
 
 // ─── Telegram message size limit ─────────────────────────────────────────────
 
@@ -80,7 +83,7 @@ function makeFortnightMarkup(activeWeek: 1 | 2) {
 
 // ─── Bot factory ──────────────────────────────────────────────────────────────
 
-export function createBot(): Telegraf {
+export function createBot(deps?: { notificationRepo?: NotificationRepo }): Telegraf {
     const bot = new Telegraf(config.bot.token);
 
     // ─── Security middleware ──────────────────────────────────────────────────
@@ -309,6 +312,85 @@ export function createBot(): Telegraf {
         } catch (err) {
             logger.error('Unexpected error in /deletelink:', err);
             await ctx.reply('❌ Не вдалося видалити посилання.');
+        }
+    });
+
+    // ─── /now ────────────────────────────────────────────────────────────────
+    bot.command('now', async (ctx: Context) => {
+        try {
+            const week = await fetchActiveWeek();
+            const dayAbbr = getUkrainianDayAbbr(new Date());
+            const scheduleDay = await scheduleService.getScheduleForDay(dayAbbr, week);
+
+            const active = getCurrentLesson(scheduleDay);
+            if (!active) {
+                await ctx.reply('Зараз пар немає.');
+                return;
+            }
+
+            const { lesson } = active;
+            const dbLabel =
+                lesson.type.startsWith('Лек') ? 'Лекція'
+                    : lesson.type.startsWith('Прак') ? 'Практика'
+                        : lesson.type.startsWith('Лаб') ? 'Лаба'
+                            : lesson.type;
+            const link = dbService.getLink(lesson.name, dbLabel);
+
+            await ctx.replyWithHTML(formatNowMessage(active, link));
+        } catch (err) {
+            logger.error('Error in /now:', err);
+            await ctx.reply('Тимчасово не вдалося отримати розклад.');
+        }
+    });
+
+    // ─── /left ───────────────────────────────────────────────────────────────
+    bot.command('left', async (ctx: Context) => {
+        try {
+            const week = await fetchActiveWeek();
+            const dayAbbr = getUkrainianDayAbbr(new Date());
+            const scheduleDay = await scheduleService.getScheduleForDay(dayAbbr, week);
+
+            const active = getCurrentLesson(scheduleDay);
+            if (!active) {
+                await ctx.reply('Зараз пар немає.');
+                return;
+            }
+
+            await ctx.reply(`До кінця пари: ${active.minutesLeft} хв`);
+        } catch (err) {
+            logger.error('Error in /left:', err);
+            await ctx.reply('Тимчасово не вдалося отримати розклад.');
+        }
+    });
+
+    // ─── /enable ───────────────────────────────────────────────────────────
+    bot.command('enable', async (ctx: Context) => {
+        const userId = ctx.from?.id;
+        if (!userId) return;
+
+        const repo = deps?.notificationRepo;
+        if (!repo) {
+            await ctx.reply('Нагадування недоступні (не налаштовано).');
+            return;
+        }
+
+        const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+        const arg = text.replace(/^\/enable\s*/i, '').trim();
+
+        const parsed = parseMinutesArg(arg);
+        if (!parsed.ok) {
+            await ctx.reply(parsed.error);
+            return;
+        }
+
+        // If no argument was given ('' → default 10), use toggle semantics
+        const minutesArg = arg === '' ? undefined : parsed.minutes;
+        const result = toggleReminder(repo, userId, minutesArg);
+
+        if (result.enabled) {
+            await ctx.reply(`Нагадування увімкнено (за ${result.minutesBefore} хв).`);
+        } else {
+            await ctx.reply('Нагадування вимкнено.');
         }
     });
 

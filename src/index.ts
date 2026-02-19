@@ -3,10 +3,18 @@ import { createBot } from './bot';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { createWebhookRouter } from './routes/webhook';
-import { dbService } from './database/db';
+import { dbService, rawDb } from './database/db';
+import { createNotificationRepo } from './database/notificationRepo';
+import { createReminderService } from './services/reminder.service';
 
 async function main(): Promise<void> {
-    const bot = createBot();
+    const notificationRepo = createNotificationRepo(rawDb);
+
+    const bot = createBot({ notificationRepo });
+    const reminderService = createReminderService(bot, notificationRepo);
+
+    // Start the every-minute cron + midnight reset cron
+    reminderService.start();
 
     // Register command hints (shown in Telegram's "/" menu)
     await bot.telegram.setMyCommands([
@@ -14,13 +22,15 @@ async function main(): Promise<void> {
         { command: 'tomorrow', description: 'Розклад на завтра' },
         { command: 'week', description: 'Розклад на весь тиждень' },
         { command: 'fortnight', description: 'Переглянути та перемикати тижні' },
+        { command: 'now', description: 'Поточна пара' },
+        { command: 'left', description: 'Скільки хвилин до кінця пари' },
         { command: 'setlink', description: 'Зберегти посилання: "Назва" Тип https://...' },
         { command: 'deletelink', description: 'Видалити посилання: "Назва" Тип' },
+        { command: 'enable', description: 'Увімкнути/вимкнути нагадування (/enable [хв])' },
     ]);
     logger.info('Bot commands registered');
 
     const app = express();
-
     app.use(express.json());
 
     // Mount webhook routes

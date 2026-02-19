@@ -18,13 +18,22 @@ function initDatabase(): Database.Database {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
 
-    // Create new table with composite PK (lesson_name, lesson_type)
+    // Lesson links table (composite PK)
     db.exec(`
     CREATE TABLE IF NOT EXISTS lesson_links (
       lesson_name TEXT NOT NULL,
       lesson_type TEXT NOT NULL,
       link        TEXT NOT NULL,
       PRIMARY KEY (lesson_name, lesson_type)
+    )
+  `);
+
+    // User notification preferences table
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS user_notifications (
+      user_id        INTEGER PRIMARY KEY,
+      enabled        INTEGER NOT NULL DEFAULT 1,
+      minutes_before INTEGER NOT NULL DEFAULT 10
     )
   `);
 
@@ -58,7 +67,10 @@ function initDatabase(): Database.Database {
     return db;
 }
 
-const db = initDatabase();
+const db: Database.Database = initDatabase();
+
+/** Raw DB instance — use only for creating separate repositories (e.g. notificationRepo). */
+export const rawDb: Database.Database = db;
 
 export const dbService = {
     setLink(lessonName: string, lessonType: string, link: string): void {
