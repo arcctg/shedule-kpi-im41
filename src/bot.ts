@@ -6,6 +6,62 @@ import { dbService } from './database/db';
 import { formatDay, formatWeek, LEGEND_HEADER } from './utils/format.utils';
 import { splitWeekMessageByDay } from './utils/messageSplitter';
 import { getUkrainianDayAbbr, getTomorrow } from './utils/date.utils';
+import { isAdmin } from './utils/admin.guard';
+import { createRateLimiterMiddleware } from './services/rateLimiter.service';
+import { createConcurrencyMiddleware } from './services/concurrency.service';
+
+// ─── Telegram message size limit ─────────────────────────────────────────────
+
+const TELEGRAM_SAFE_LENGTH = 3800;
+
+/**
+ * Sends an HTML message, automatically splitting it into multiple parts when it
+ * exceeds the safe character threshold (3 800 chars — below the 4 096 hard limit
+ * to account for entity overhead).
+ */
+async function replyWithHtmlSafe(ctx: Context, text: string): Promise<void> {
+    if (text.length <= TELEGRAM_SAFE_LENGTH) {
+        await ctx.replyWithHTML(text);
+        return;
+    }
+    const parts = splitWeekMessageByDay(text);
+    for (const part of parts) {
+        if (part.trim()) {
+            await ctx.replyWithHTML(part);
+        }
+    }
+}
+
+// ─── URL validation for /setlink ─────────────────────────────────────────────
+
+const MAX_URL_LENGTH = 2000;
+
+/**
+ * Validates that a URL is safe to store:
+ * - Must be parseable by the WHATWG URL parser
+ * - Protocol must be exactly `https:`
+ * - Length must not exceed 2 000 characters
+ *
+ * Returns null on success, or an error string to show the user.
+ */
+function validateUrl(raw: string): string | null {
+    if (raw.length > MAX_URL_LENGTH) {
+        return `⚠️ URL занадто довгий (максимум ${MAX_URL_LENGTH} символів).`;
+    }
+
+    let parsed: URL;
+    try {
+        parsed = new URL(raw);
+    } catch {
+        return '⚠️ Некоректне посилання. Перевірте URL.';
+    }
+
+    if (parsed.protocol !== 'https:') {
+        return '⚠️ Некоректне посилання. Дозволені тільки https:// URL.';
+    }
+
+    return null; // valid
+}
 
 // ─── Inline keyboard for /fortnight ──────────────────────────────────────────
 
@@ -26,6 +82,10 @@ function makeFortnightMarkup(activeWeek: 1 | 2) {
 
 export function createBot(): Telegraf {
     const bot = new Telegraf(config.bot.token);
+
+    // ─── Security middleware ──────────────────────────────────────────────────
+    bot.use(createRateLimiterMiddleware());
+    bot.use(createConcurrencyMiddleware());
 
     // ─── /start ──────────────────────────────────────────────────────────────
     bot.start(async (ctx: Context) => {
@@ -102,7 +162,7 @@ export function createBot(): Telegraf {
             const week = await fetchActiveWeek();
             const dayName = getUkrainianDayAbbr(new Date());
             const day = await scheduleService.getScheduleForDay(dayName, week);
-            await ctx.replyWithHTML(formatDay(dayName, day?.pairs ?? []));
+            await replyWithHtmlSafe(ctx, formatDay(dayName, day?.pairs ?? []));
         } catch (err) {
             logger.error('Error in /today:', err);
             await ctx.reply('❌ Не вдалося отримати розклад. Спробуйте пізніше.');
@@ -115,7 +175,7 @@ export function createBot(): Telegraf {
             const week = await fetchActiveWeek();
             const dayName = getUkrainianDayAbbr(getTomorrow(new Date()));
             const day = await scheduleService.getScheduleForDay(dayName, week);
-            await ctx.replyWithHTML(formatDay(dayName, day?.pairs ?? []));
+            await replyWithHtmlSafe(ctx, formatDay(dayName, day?.pairs ?? []));
         } catch (err) {
             logger.error('Error in /tomorrow:', err);
             await ctx.reply('❌ Не вдалося отримати розклад. Спробуйте пізніше.');
@@ -139,6 +199,13 @@ export function createBot(): Telegraf {
 
     // ─── /setlink ────────────────────────────────────────────────────────────
     bot.command('setlink', async (ctx: Context) => {
+        if (!isAdmin(ctx)) {
+            logger.warn(
+                `[SECURITY] Unauthorized admin attempt: /setlink by userId=${ctx.from?.id ?? 'unknown'} username=@${ctx.from?.username ?? 'unknown'}`,
+            );
+            await ctx.reply('У вас немає прав для цієї команди.');
+            return;
+        }
         try {
             const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
             const withoutCmd = text.replace(/^\/setlink\s*/i, '').trim();
@@ -182,21 +249,34 @@ export function createBot(): Telegraf {
                 await ctx.reply(`⚠️ Невідомий тип: "${lessonType}"\nДопустимі: Лекція | Практика | Лаба`);
                 return;
             }
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                await ctx.reply('⚠️ URL повинен починатися з http:// або https://');
+
+            // ── URL validation (https-only, WHATWG-parsed, max 2000 chars) ────
+            const urlError = validateUrl(url);
+            if (urlError) {
+                logger.warn(
+                    `[SECURITY] Invalid URL in /setlink by userId=${ctx.from?.id ?? 'unknown'}: ${url}`,
+                );
+                await ctx.reply(urlError);
                 return;
             }
 
             dbService.setLink(cleanName, lessonType, url);
             await ctx.replyWithHTML(`✅ Посилання збережено:\n<b>${cleanName}</b> [${lessonType}]`);
         } catch (err) {
-            logger.error('Error in /setlink:', err);
+            logger.error('Unexpected error in /setlink:', err);
             await ctx.reply('❌ Не вдалося зберегти посилання.');
         }
     });
 
     // ─── /deletelink ─────────────────────────────────────────────────────────
     bot.command('deletelink', async (ctx: Context) => {
+        if (!isAdmin(ctx)) {
+            logger.warn(
+                `[SECURITY] Unauthorized admin attempt: /deletelink by userId=${ctx.from?.id ?? 'unknown'} username=@${ctx.from?.username ?? 'unknown'}`,
+            );
+            await ctx.reply('У вас немає прав для цієї команди.');
+            return;
+        }
         try {
             const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
             const withoutCmd = text.replace(/^\/deletelink\s*/i, '').trim();
@@ -227,14 +307,14 @@ export function createBot(): Telegraf {
                 await ctx.replyWithHTML(`⚠️ Посилання для <b>${lessonName}</b> [${lessonType}] не знайдено.`);
             }
         } catch (err) {
-            logger.error('Error in /deletelink:', err);
+            logger.error('Unexpected error in /deletelink:', err);
             await ctx.reply('❌ Не вдалося видалити посилання.');
         }
     });
 
     // ─── Error handler ────────────────────────────────────────────────────────
     bot.catch((err: unknown, ctx: Context) => {
-        logger.error(`Bot error for update ${ctx.update.update_id}:`, err);
+        logger.error(`[UNEXPECTED] Bot error for update ${ctx.update.update_id}:`, err);
     });
 
     return bot;

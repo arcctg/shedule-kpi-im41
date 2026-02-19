@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     app.use(express.json());
 
     // Mount webhook routes
-    const webhookRouter = createWebhookRouter(bot);
+    const webhookRouter = createWebhookRouter(bot, config.bot.webhookSecret);
     app.use('/', webhookRouter);
 
     const useWebhook = Boolean(config.bot.webhookUrl);
@@ -34,7 +34,10 @@ async function main(): Promise<void> {
         const webhookPath = '/webhook';
         const fullWebhookUrl = `${config.bot.webhookUrl}${webhookPath}`;
 
-        await bot.telegram.setWebhook(fullWebhookUrl);
+        const setWebhookOptions = config.bot.webhookSecret
+            ? { secret_token: config.bot.webhookSecret }
+            : {};
+        await bot.telegram.setWebhook(fullWebhookUrl, setWebhookOptions);
         logger.info(`Webhook set to: ${fullWebhookUrl}`);
 
         const server = app.listen(config.server.port, () => {

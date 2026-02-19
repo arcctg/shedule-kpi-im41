@@ -1,6 +1,7 @@
 import type { Lesson, ScheduleDay } from '../types/kpi.types';
 import { dbService } from '../database/db';
 import { parseStartMinutes, formatTime, abbrevToFullDayName } from './date.utils';
+import { htmlEscape } from './htmlEscape';
 
 // ─── Type icons & canonical DB type labels ────────────────────────────────────
 
@@ -98,11 +99,12 @@ export function formatDayBlock(dayAbbr: string, lessons: Lesson[]): string {
 
         for (const lesson of group.lessons) {
             const { icon, dbLabel } = getTypeMeta(lesson.type);
+            const safeName = htmlEscape(lesson.name);
             const link = dbService.getLink(lesson.name, dbLabel);
             if (link) {
-                lines.push(`${icon} <a href="${link}">${lesson.name}</a>`);
+                lines.push(`${icon} <a href="${link}">${safeName}</a>`);
             } else {
-                lines.push(`${icon} ${lesson.name}`);
+                lines.push(`${icon} ${safeName}`);
             }
         }
     }

@@ -35,10 +35,17 @@ async function fetchSchedule(): Promise<KPIScheduleResponse> {
     }
 
     logger.info(`Fetching schedule for groupId=${config.kpi.groupId}`);
-    const { data } = await axios.get<KPIScheduleResponse>(
-        `${config.kpi.apiBase}/lessons`,
-        { params: { groupId: config.kpi.groupId }, timeout: 10_000 },
-    );
+    let data: KPIScheduleResponse;
+    try {
+        const response = await axios.get<KPIScheduleResponse>(
+            `${config.kpi.apiBase}/lessons`,
+            { params: { groupId: config.kpi.groupId }, timeout: 5_000 },
+        );
+        data = response.data;
+    } catch (err) {
+        logger.error('[AXIOS_TIMEOUT] Failed to fetch schedule from KPI API:', err);
+        throw err; // do not cache; bubble up so commands reply with an error message
+    }
 
     cache.set(CACHE_KEYS.schedule, data);
     return data;
@@ -60,7 +67,7 @@ export async function fetchActiveWeek(): Promise<1 | 2> {
         logger.info(`Fetching schedule status for groupId=${config.kpi.groupId}`);
         const { data } = await axios.get<ScheduleStatusItem[] | { currentWeek?: number }>(
             `${config.kpi.apiBase}/status`,
-            { params: { groupId: config.kpi.groupId }, timeout: 10_000 },
+            { params: { groupId: config.kpi.groupId }, timeout: 5_000 },
         );
 
         let week: 1 | 2 = getAutoWeekNumber();
@@ -77,7 +84,7 @@ export async function fetchActiveWeek(): Promise<1 | 2> {
         cache.set(CACHE_KEYS.status, week, 300);
         return week;
     } catch (err) {
-        logger.warn('Failed to fetch status, using ISO week parity fallback:', err);
+        logger.warn('[AXIOS_TIMEOUT] Failed to fetch status, using ISO week parity fallback:', err);
         return getAutoWeekNumber();
     }
 }

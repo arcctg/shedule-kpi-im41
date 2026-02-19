@@ -58,7 +58,46 @@ npm start
 
 ---
 
-## 🐳 Docker
+## 🧪 Тести
+
+Проєкт використовує **[Vitest](https://vitest.dev/)** + **Supertest** для юніт- та інтеграційного тестування.
+
+### Запуск тестів
+
+```bash
+# Одноразовий запуск (CI-режим)
+npm test -- --run
+
+# Watch-режим (розробка)
+npm test
+```
+
+### Покриття коду
+
+```bash
+npm run test:coverage
+```
+
+HTML-звіт зберігається у `coverage/index.html`. Відкрийте у браузері для детального перегляду.
+
+### Що покривається
+
+| Модуль | Опис |
+|---|---|
+| `src/utils/htmlEscape` | Всі 4 HTML-символи + крайні випадки |
+| `src/utils/date.utils` | Кожен день тижня, зміна місяця, час |
+| `src/utils/messageSplitter` | Коротке/довге повідомлення, розбиття по днях |
+| `src/utils/format.utils` | Форматування, HTML-escape, посилання |
+| `src/utils/admin.guard` | ID / username, регістр, відсутній `from` |
+| `src/services/rateLimiter.service` | Ліміт 5 запитів / 10 с, блокування 30 с |
+| `src/services/concurrency.service` | Lock/release, дублікати, помилки |
+| `src/services/weekSelection.service` | Зберігання/скидання вибору тижня |
+| `src/services/schedule.service` | Axios-mock: кеш, таймаут, тиждень 1/2 |
+| `src/database/db` | In-memory SQLite: CRUD + upsert |
+| `src/routes/webhook` | Express: secret-verif., health, 403/200 |
+
+---
+
 
 ### Збірка образу
 
