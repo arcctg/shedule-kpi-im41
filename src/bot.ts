@@ -11,6 +11,7 @@ import { createRateLimiterMiddleware } from './services/rateLimiter.service';
 import { createConcurrencyMiddleware } from './services/concurrency.service';
 import { getCurrentLesson, formatNowMessage } from './utils/currentLesson';
 import { parseMinutesArg, toggleReminder } from './services/reminder.service';
+import { handleTeacherCommand } from './services/teacher.service';
 import type { NotificationRepo } from './database/notificationRepo';
 
 // ─── Telegram message size limit ─────────────────────────────────────────────
@@ -89,6 +90,24 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
     // ─── Security middleware ──────────────────────────────────────────────────
     bot.use(createRateLimiterMiddleware());
     bot.use(createConcurrencyMiddleware());
+
+    // ─── Stale update guard ─────────────────────────────────────────────────────
+    // Drops message updates that are older than 60 seconds. Safe for
+    // callback_query / inline_query which have no .date field on the message.
+    bot.use((ctx, next) => {
+        const updateDate = ctx.message?.date;
+        if (updateDate !== undefined) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (nowSec - updateDate > 60) {
+                logger.warn(
+                    `[SECURITY] Stale update ignored (age=${nowSec - updateDate}s, ` +
+                    `userId=${ctx.from?.id ?? 'unknown'})`,
+                );
+                return;
+            }
+        }
+        return next();
+    });
 
     // ─── /start ──────────────────────────────────────────────────────────────
     bot.start(async (ctx: Context) => {
@@ -391,6 +410,18 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
             await ctx.reply(`Нагадування увімкнено (за ${result.minutesBefore} хв).`);
         } else {
             await ctx.reply('Нагадування вимкнено.');
+        }
+    });
+
+    // ─── /teacher ────────────────────────────────────────────────────────
+    bot.command('teacher', async (ctx: Context) => {
+        try {
+            const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+            const html = await handleTeacherCommand(text);
+            await ctx.replyWithHTML(html);
+        } catch (err) {
+            logger.error('Error in /teacher:', err);
+            await ctx.reply('Тимчасово не вдалося отримати розклад.');
         }
     });
 

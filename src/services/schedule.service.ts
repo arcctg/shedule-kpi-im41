@@ -107,6 +107,19 @@ export const scheduleService = {
         return getLessonsForDay(days, dayName) ?? null;
     },
 
+    /**
+     * Returns all lessons from both weeks in a single cached API call.
+     * Used by /teacher to search across the full schedule.
+     */
+    async getAllLessons(): Promise<import('../types/kpi.types').Lesson[]> {
+        const schedule = await fetchSchedule();
+        const allDays = [
+            ...schedule.scheduleFirstWeek,
+            ...schedule.scheduleSecondWeek,
+        ];
+        return allDays.flatMap((day) => day.pairs);
+    },
+
     clearCache(): void {
         cache.flushAll();
         logger.info('Schedule cache cleared');

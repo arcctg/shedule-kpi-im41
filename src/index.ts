@@ -43,16 +43,51 @@ async function main(): Promise<void> {
         // ── Webhook mode ──────────────────────────────────────────────────────────
         const webhookPath = '/webhook';
         const fullWebhookUrl = `${config.bot.webhookUrl}${webhookPath}`;
+        const hasSecret = Boolean(config.bot.webhookSecret);
 
-        const setWebhookOptions = config.bot.webhookSecret
-            ? { secret_token: config.bot.webhookSecret }
-            : {};
-        await bot.telegram.setWebhook(fullWebhookUrl, setWebhookOptions);
-        logger.info(`Webhook set to: ${fullWebhookUrl}`);
+        logger.info(`[WEBHOOK] Mode: webhook`);
+        logger.info(`[WEBHOOK] URL: ${fullWebhookUrl}`);
+        logger.info(`[WEBHOOK] Secret: ${hasSecret ? 'configured' : 'not configured'}`);
+
+        // ── Re-registration guard ──────────────────────────────────────────────
+        // Fetch current webhook state from Telegram so we only call setWebhook
+        // when strictly necessary (changed URL or secret presence changed).
+        let needsRegistration = true;
+        try {
+            const info = await bot.telegram.getWebhookInfo();
+            const urlSame = info.url === fullWebhookUrl;
+            // Telegram reports whether a secret token is set via `has_custom_certificate`
+            // but NOT the token value itself. We compare "secret present" flag instead.
+            const secretSame = Boolean(info.has_custom_certificate) === hasSecret;
+            if (urlSame && secretSame) {
+                needsRegistration = false;
+                logger.info('[WEBHOOK] Already registered correctly — skipping setWebhook');
+            } else {
+                logger.info(
+                    `[WEBHOOK] Re-registering (urlChanged=${!urlSame}, secretChanged=${!secretSame})`,
+                );
+            }
+        } catch (err) {
+            logger.warn('[WEBHOOK] Could not fetch webhook info — will re-register:', err);
+        }
+
+        if (needsRegistration) {
+            const setWebhookOptions = hasSecret
+                ? { secret_token: config.bot.webhookSecret, drop_pending_updates: true }
+                : { drop_pending_updates: true };
+            await bot.telegram.setWebhook(fullWebhookUrl, setWebhookOptions);
+            logger.info(
+                hasSecret
+                    ? '[WEBHOOK] Set with secret'
+                    : '[WEBHOOK] Set without secret',
+            );
+        }
 
         const server = app.listen(config.server.port, () => {
             logger.info(`Express server listening on port ${config.server.port}`);
         });
+
+
 
         // ── Graceful shutdown ─────────────────────────────────────────────────────
         const shutdown = async (signal: string): Promise<void> => {
