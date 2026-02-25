@@ -44,6 +44,7 @@ export const config = {
     kpi: {
         groupId: optionalEnv('GROUP_ID', '4318'),
         apiBase: 'https://api.campus.kpi.ua/schedule',
+        timeApiBase: 'https://api.campus.kpi.ua/time',
     },
     cache: {
         ttl: parseInt(optionalEnv('CACHE_TTL', '300'), 10),
