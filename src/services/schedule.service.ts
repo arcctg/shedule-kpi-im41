@@ -2,13 +2,13 @@ import axios from 'axios';
 import NodeCache from 'node-cache';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import type { KPIScheduleResponse, ScheduleDay, ScheduleStatusItem } from '../types/kpi.types';
+import type { KPIScheduleResponse, ScheduleDay } from '../types/kpi.types';
 
 const cache = new NodeCache({ stdTTL: config.cache.ttl });
 
 const CACHE_KEYS = {
     schedule: `schedule_${config.kpi.groupId}`,
-    status: `status_${config.kpi.groupId}`,
+    activeWeek: 'active_week',
 } as const;
 
 /**
@@ -52,39 +52,30 @@ async function fetchSchedule(): Promise<KPIScheduleResponse> {
 }
 
 /**
- * Fetches the active week number from the status API.
- * The status API returns an array; we look for a `currentWeek` field.
- * If unavailable, falls back to ISO-week parity calculation.
+ * Fetches the active week number from the KPI time API.
+ * Falls back to ISO-week parity calculation if the request fails.
  */
 export async function fetchActiveWeek(): Promise<1 | 2> {
-    const cached = cache.get<1 | 2>(CACHE_KEYS.status);
+    const cached = cache.get<1 | 2>(CACHE_KEYS.activeWeek);
     if (cached) {
         logger.debug(`Active week from cache: ${cached}`);
         return cached;
     }
 
     try {
-        logger.info(`Fetching schedule status for groupId=${config.kpi.groupId}`);
-        const { data } = await axios.get<ScheduleStatusItem[] | { currentWeek?: number }>(
-            `${config.kpi.apiBase}/status`,
-            { params: { groupId: config.kpi.groupId }, timeout: 5_000 },
+        logger.info('Fetching current week from KPI time API');
+        const { data } = await axios.get<{ currentWeek: number }>(
+            `${config.kpi.timeApiBase}/current`,
+            { timeout: 5_000 },
         );
 
-        let week: 1 | 2 = getAutoWeekNumber();
+        const w = data.currentWeek;
+        const week: 1 | 2 = w === 1 || w === 2 ? w : getAutoWeekNumber();
 
-        // Handle both array and object responses
-        if (Array.isArray(data)) {
-            // Real API returns array — no currentWeek, fall back to ISO parity
-            logger.debug('Status API returned array — using ISO week parity fallback');
-        } else if (typeof data === 'object' && data !== null && 'currentWeek' in data) {
-            const w = data.currentWeek;
-            if (w === 1 || w === 2) week = w;
-        }
-
-        cache.set(CACHE_KEYS.status, week, 300);
+        cache.set(CACHE_KEYS.activeWeek, week, 300);
         return week;
     } catch (err) {
-        logger.warn('[AXIOS_TIMEOUT] Failed to fetch status, using ISO week parity fallback:', err);
+        logger.warn('[AXIOS_TIMEOUT] Failed to fetch current week, using ISO week parity fallback:', err);
         return getAutoWeekNumber();
     }
 }
