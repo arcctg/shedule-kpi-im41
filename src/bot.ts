@@ -9,7 +9,7 @@ import { getUkrainianDayAbbr, getTomorrow } from './utils/date.utils';
 import { isAdmin } from './utils/admin.guard';
 import { createRateLimiterMiddleware } from './services/rateLimiter.service';
 import { createConcurrencyMiddleware } from './services/concurrency.service';
-import { getCurrentLesson, formatNowMessage, getNextLesson, formatNextMessage } from './utils/currentLesson';
+import { getCurrentLesson, formatNowMessage, getNextLesson, formatNextMessage, formatMinutesLeft } from './utils/currentLesson';
 import { toggleReminder } from './services/reminder.service';
 
 import { handleTeacherCommand } from './services/teacher.service';
@@ -404,7 +404,7 @@ export function createBot(deps?: { notificationRepo?: NotificationRepo }): Teleg
                 return;
             }
 
-            await ctx.reply(`До кінця пари: ${active.minutesLeft} хв`);
+            await ctx.reply(`До кінця пари: ${formatMinutesLeft(active.minutesLeft)}`);
         } catch (err) {
             logger.error('Error in /left:', err);
             await ctx.reply('Тимчасово не вдалося отримати розклад.');
