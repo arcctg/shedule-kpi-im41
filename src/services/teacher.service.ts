@@ -19,7 +19,7 @@ export interface TeacherResult {
 
 // ─── Regex command parser ─────────────────────────────────────────────────────
 
-const TEACHER_REGEX = /^\/teacher\s+"([^"]+)"\s*(.*)$/i;
+const TEACHER_REGEX = /^\/teacher(?:@\w+)?\s+"([^"]+)"\s*(.*)$/i;
 
 export type ParseTeacherResult =
     | { ok: true; subjectName: string; type: string | null }
@@ -81,7 +81,7 @@ export function findTeachers(
 
     const matched = allLessons.filter((l) => {
         if (l.name.toLowerCase() !== nameLower) return false;
-        if (typeLower && !l.type.toLowerCase().startsWith(typeLower)) return false;
+        if (typeLower && !normalizeType(l.type).toLowerCase().startsWith(typeLower)) return false;
         return true;
     });
 
